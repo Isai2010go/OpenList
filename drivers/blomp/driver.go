@@ -149,27 +149,118 @@ func (d *Blomp) MakeDir(ctx context.Context, parentDir model.Obj, dirName string
 func (d *Blomp) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
 	return d.moveOrCopy(ctx, srcObj, dstDir, true)
 }
+
 func (d *Blomp) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
 	return d.moveOrCopy(ctx, srcObj, dstDir, false)
 }
+
 func (d *Blomp) moveOrCopy(ctx context.Context, srcObj, dstDir model.Obj, move bool) (model.Obj, error) {
-	sc, so, ok := splitStoragePath(srcObj.GetPath()); if !ok { return nil, fmt.Errorf("invalid source path") }
-	dc, dp, ok := splitStoragePath(dstDir.GetPath()); if !ok { return nil, fmt.Errorf("invalid destination path") }
-	target := path.Join(dp, srcObj.GetName())
-	if srcObj.IsDir() { target += "/" }
-	var err error
-	if move { err = d.conn.ObjectMove(ctx, sc, so, dc, target) } else { _, err = d.conn.ObjectCopy(ctx, sc, so, dc, target, nil) }
-	if err != nil { return nil, err }
-	return &model.Object{ID:dc+"/"+target, Path:path.Join(dstDir.GetPath(), srcObj.GetName()), Name:srcObj.GetName(), Size:srcObj.GetSize(), IsFolder:srcObj.IsDir(), Modified:time.Now()}, nil
+	if d.conn == nil {
+		return nil, fmt.Errorf("Blomp is not initialized")
+	}
+	srcContainer, srcObject, ok := splitStoragePath(srcObj.GetPath())
+	if !ok {
+		return nil, fmt.Errorf("invalid Blomp source path %q", srcObj.GetPath())
+	}
+	dstContainer, dstPrefix, ok := splitStoragePath(dstDir.GetPath())
+	if !ok {
+		return nil, fmt.Errorf("invalid Blomp destination path %q", dstDir.GetPath())
+	}
+	targetName := path.Join(dstPrefix, srcObj.GetName())
+	if srcObj.IsDir() {
+		targetName = strings.TrimSuffix(targetName, "/") + "/"
+	}
+	if err := d.transferObject(ctx, srcContainer, srcObject, dstContainer, targetName, srcObj.IsDir(), move); err != nil {
+		return nil, err
+	}
+	return &model.Object{
+		ID: dstContainer + "/" + strings.TrimSuffix(targetName, "/"),
+		Path: path.Join(dstDir.GetPath(), srcObj.GetName()),
+		Name: srcObj.GetName(),
+		Size: srcObj.GetSize(),
+		IsFolder: srcObj.IsDir(),
+		Modified: time.Now(),
+	}, nil
+}
+
+// transferObject copies a file or an entire Swift pseudo-directory. For a
+// directory, all descendants are copied before any source object is removed.
+func (d *Blomp) transferObject(ctx context.Context, srcContainer, srcObject, dstContainer, dstObject string, isDir, move bool) error {
+	if !isDir {
+		if move {
+			return d.conn.ObjectMove(ctx, srcContainer, srcObject, dstContainer, dstObject)
+		}
+		_, err := d.conn.ObjectCopy(ctx, srcContainer, srcObject, dstContainer, dstObject, nil)
+		return err
+	}
+
+	srcPrefix := strings.TrimSuffix(srcObject, "/") + "/"
+	dstPrefix := strings.TrimSuffix(dstObject, "/") + "/"
+	items, err := d.conn.ObjectsAll(ctx, srcContainer, &swift.ObjectsOpts{
+		Prefix: srcPrefix,
+		Limit:  1000,
+	})
+	if err != nil {
+		return fmt.Errorf("list Blomp directory before transfer: %w", err)
+	}
+	if len(items) == 0 {
+		// Preserve an empty directory even if the backend does not materialize
+		// pseudo-directories as objects.
+		return d.conn.ObjectPutString(ctx, dstContainer, dstPrefix, "", "application/directory")
+	}
+
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		relative := strings.TrimPrefix(item.Name, srcPrefix)
+		if relative == "" {
+			continue
+		}
+		if _, err := d.conn.ObjectCopy(ctx, srcContainer, item.Name, dstContainer, dstPrefix+relative, nil); err != nil {
+			return fmt.Errorf("copy Blomp directory object %q: %w", item.Name, err)
+		}
+	}
+	if !move {
+		return nil
+	}
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := d.conn.ObjectDelete(ctx, srcContainer, item.Name); err != nil {
+			return fmt.Errorf("remove source object %q after directory copy: %w", item.Name, err)
+		}
+	}
+	return nil
 }
 
 func (d *Blomp) Rename(ctx context.Context, srcObj model.Obj, newName string) (model.Obj, error) {
-	container, object, ok := splitStoragePath(srcObj.GetPath()); if !ok { return nil, fmt.Errorf("invalid source path") }
-	parent := path.Dir(object)
-	target := path.Join(parent, newName)
-	if srcObj.IsDir() { target += "/" }
-	if err := d.conn.ObjectMove(ctx, container, object, container, target); err != nil { return nil, err }
-	return &model.Object{ID:container+"/"+target, Path:path.Join(path.Dir(srcObj.GetPath()), newName), Name:newName, Size:srcObj.GetSize(), IsFolder:srcObj.IsDir(), Modified:time.Now()}, nil
+	if d.conn == nil {
+		return nil, fmt.Errorf("Blomp is not initialized")
+	}
+	if newName == "" || newName == "." || newName == ".." || strings.ContainsAny(newName, "/\\\\") {
+		return nil, fmt.Errorf("invalid Blomp object name %q", newName)
+	}
+	container, object, ok := splitStoragePath(srcObj.GetPath())
+	if !ok {
+		return nil, fmt.Errorf("invalid Blomp source path %q", srcObj.GetPath())
+	}
+	target := path.Join(path.Dir(object), newName)
+	if srcObj.IsDir() {
+		target = strings.TrimSuffix(target, "/") + "/"
+	}
+	if err := d.transferObject(ctx, container, object, container, target, srcObj.IsDir(), true); err != nil {
+		return nil, err
+	}
+	return &model.Object{
+		ID: container + "/" + strings.TrimSuffix(target, "/"),
+		Path: path.Join(path.Dir(srcObj.GetPath()), newName),
+		Name: newName,
+		Size: srcObj.GetSize(),
+		IsFolder: srcObj.IsDir(),
+		Modified: time.Now(),
+	}, nil
 }
 
 func (d *Blomp) Remove(ctx context.Context, obj model.Obj) error {
