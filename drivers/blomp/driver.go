@@ -36,7 +36,7 @@ func (d *Blomp) Init(ctx context.Context) error {
 		ApiKey: d.Password,
 		AuthUrl: strings.TrimSpace(d.AuthURL),
 		AuthVersion: 2,
-		Tenant: "storage",
+		Tenant: d.Tenant,
 		ConnectTimeout: 15 * time.Second,
 		Timeout: 2 * time.Minute,
 		UserAgent: "OpenList-Blomp/1.0",
@@ -79,6 +79,7 @@ func (d *Blomp) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([
 	}
 	container, prefix, ok := splitStoragePath(dir.GetPath())
 	if !ok { return nil, fmt.Errorf("invalid Blomp path: %q", dir.GetPath()) }
+	if prefix != "" && !strings.HasSuffix(prefix, "/") { prefix += "/" }
 	opts := &swift.ObjectsOpts{Prefix:prefix, Delimiter:"/", Limit:10000}
 	objects, err := d.conn.ObjectsAll(ctx, container, opts)
 	if err != nil { return nil, fmt.Errorf("list Blomp container %q: %w", container, err) }
@@ -136,7 +137,10 @@ func (r *blompRangeReader) RangeRead(ctx context.Context, rg http_range.Range) (
 func (d *Blomp) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
 	if d.conn == nil { return nil, fmt.Errorf("Blomp is not initialized") }
 	container, prefix, ok := splitStoragePath(parentDir.GetPath())
-	if !ok { return nil, fmt.Errorf("cannot create a container through this operation") }
+	if !ok {
+		if err := d.conn.ContainerCreate(ctx, dirName, nil); err != nil { return nil, err }
+		return &model.Object{ID:dirName, Path:dirName, Name:dirName, IsFolder:true}, nil
+	}
 	name := strings.TrimSuffix(path.Join(prefix, dirName), "/") + "/"
 	if err := d.conn.ObjectPutString(ctx, container, name, "", "application/directory"); err != nil { return nil, err }
 	return &model.Object{ID:container+"/"+name, Path:path.Join(parentDir.GetPath(), dirName), Name:dirName, IsFolder:true}, nil
