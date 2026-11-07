@@ -88,7 +88,7 @@ func (d *Blomp) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([
 	container, prefix, ok := splitStoragePath(dir.GetPath())
 	if !ok { return nil, fmt.Errorf("invalid Blomp path: %q", dir.GetPath()) }
 	if prefix != "" && !strings.HasSuffix(prefix, "/") { prefix += "/" }
-	opts := &swift.ObjectsOpts{Prefix:prefix, Delimiter:"/", Limit:10000}
+	opts := &swift.ObjectsOpts{Prefix:prefix, Delimiter:'/', Limit:10000}
 	objects, err := d.conn.ObjectsAll(ctx, container, opts)
 	if err != nil { return nil, fmt.Errorf("list Blomp container %q: %w", container, err) }
 	out := make([]model.Obj, 0, len(objects))
