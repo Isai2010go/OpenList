@@ -5,15 +5,13 @@ import (
 	"fmt"
 	"io"
 	"mime"
-	"net/http"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
-	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
-	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
+	"github.com/OpenListTeam/OpenList/v4/pkg/http_range"
 	"github.com/ncw/swift/v2"
 )
 
@@ -123,8 +121,16 @@ type blompRangeReader struct {
 	container, object string
 }
 
-func (r *blompRangeReader) RangeRead(ctx context.Context, rg interface{ }) (io.ReadCloser, error) {
-	return nil, fmt.Errorf("unsupported range type")
+func (r *blompRangeReader) RangeRead(ctx context.Context, rg http_range.Range) (io.ReadCloser, error) {
+	headers := swift.Headers{}
+	if rg.Start > 0 || rg.Length >= 0 {
+		end := ""
+		if rg.Length >= 0 { end = fmt.Sprintf("%d", rg.Start+rg.Length-1) }
+		headers["Range"] = fmt.Sprintf("bytes=%d-%s", rg.Start, end)
+	}
+	file, _, err := r.conn.ObjectOpen(ctx, r.container, r.object, false, headers)
+	if err != nil { return nil, fmt.Errorf("read Blomp object: %w", err) }
+	return file, nil
 }
 
 func (d *Blomp) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
@@ -200,6 +206,3 @@ func splitStoragePath(p string) (container, object string, ok bool) {
 }
 
 var _ driver.Driver = (*Blomp)(nil)
-var _ = utils.HashInfo{}
-var _ = http.Header{}
-var _ = errs.NotImplement
