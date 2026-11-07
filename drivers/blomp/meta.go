@@ -9,7 +9,7 @@ type Addition struct {
 	driver.RootPath
 	Username       string `json:"username" type:"string" required:"true" help:"Blomp account email address"`
 	Password       string `json:"password" type:"string" required:"true" help:"Blomp account password"`
-	AuthURL        string `json:"auth_url" type:"string" default:"https://authenticate.blomp.com/v2.0" help:"Keystone v2 authentication URL"`
+	AuthURL        string `json:"auth_url" type:"string" default:"" help:"Keystone v2 authentication URL"`
 	AllowHTTP      bool   `json:"allow_http" type:"bool" default:"false" help:"Allow the HTTP storage endpoint returned by Blomp. The token and file data will be unencrypted."`
 }
 
