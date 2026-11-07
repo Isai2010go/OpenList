@@ -7,6 +7,7 @@ import (
 
 type Addition struct {
 	driver.RootPath
+	Tenant         string `json:"tenant" type:"string" default:"storage" help:"Swift tenant/project name; confirm this value with Blomp support"`
 	Username       string `json:"username" type:"string" required:"true" help:"Blomp account email address"`
 	Password       string `json:"password" type:"string" required:"true" help:"Blomp account password"`
 	AuthURL        string `json:"auth_url" type:"string" default:"" help:"Keystone v2 authentication URL"`
