@@ -146,6 +146,7 @@ func (r *blompRangeReader) RangeRead(ctx context.Context, rg http_range.Range) (
 
 func (d *Blomp) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
 	if d.conn == nil { return nil, fmt.Errorf("Blomp is not initialized") }
+	if !validName(dirName) { return nil, fmt.Errorf("invalid Blomp directory name %q", dirName) }
 	container, prefix, ok := splitStoragePath(parentDir.GetPath())
 	if !ok {
 		if err := d.conn.ContainerCreate(ctx, dirName, nil); err != nil { return nil, err }
@@ -287,6 +288,7 @@ func (d *Blomp) Rename(ctx context.Context, srcObj model.Obj, newName string) (m
 }
 
 func (d *Blomp) Remove(ctx context.Context, obj model.Obj) error {
+	if d.conn == nil { return fmt.Errorf("Blomp is not initialized") }
 	container, object, ok := splitStoragePath(obj.GetPath()); if !ok { return fmt.Errorf("cannot remove container root") }
 	if obj.IsDir() {
 		items, err := d.conn.ObjectsAll(ctx, container, &swift.ObjectsOpts{Prefix:strings.TrimSuffix(object, "/")+"/", Limit:10000})
@@ -299,6 +301,7 @@ func (d *Blomp) Remove(ctx context.Context, obj model.Obj) error {
 
 func (d *Blomp) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
 	if d.conn == nil { return nil, fmt.Errorf("Blomp is not initialized") }
+	if !validName(file.GetName()) { return nil, fmt.Errorf("invalid Blomp file name %q", file.GetName()) }
 	container, prefix, ok := splitStoragePath(dstDir.GetPath()); if !ok { return nil, fmt.Errorf("invalid destination path") }
 	object := path.Join(prefix, file.GetName())
 	var reader io.Reader = driver.NewLimitedUploadStream(ctx, file)
@@ -312,6 +315,10 @@ func (d *Blomp) Put(ctx context.Context, dstDir model.Obj, file model.FileStream
 		return nil, fmt.Errorf("upload to Blomp: %w", err)
 	}
 	return &model.Object{ID:container+"/"+object, Path:path.Join(dstDir.GetPath(), file.GetName()), Name:file.GetName(), Size:file.GetSize(), Modified:time.Now()}, nil
+}
+
+func validName(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\\\")
 }
 
 func splitStoragePath(p string) (container, object string, ok bool) {
