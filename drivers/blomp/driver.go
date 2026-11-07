@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -311,7 +312,11 @@ func (d *Blomp) Put(ctx context.Context, dstDir model.Obj, file model.FileStream
 	contentType := file.GetMimetype()
 	if contentType == "" { contentType = mime.TypeByExtension(path.Ext(file.GetName())) }
 	if contentType == "" { contentType = "application/octet-stream" }
-	if _, err := d.conn.ObjectPut(ctx, container, object, reader, false, "", contentType, nil); err != nil {
+	headers := swift.Headers{}
+	if size := file.GetSize(); size >= 0 {
+		headers["Content-Length"] = strconv.FormatInt(size, 10)
+	}
+	if _, err := d.conn.ObjectPut(ctx, container, object, reader, true, "", contentType, headers); err != nil {
 		return nil, fmt.Errorf("upload to Blomp: %w", err)
 	}
 	return &model.Object{ID:container+"/"+object, Path:path.Join(dstDir.GetPath(), file.GetName()), Name:file.GetName(), Size:file.GetSize(), Modified:time.Now()}, nil
