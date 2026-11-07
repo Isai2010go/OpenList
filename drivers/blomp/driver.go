@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -28,13 +29,18 @@ func (d *Blomp) Init(ctx context.Context) error {
 	if strings.TrimSpace(d.Username) == "" || d.Password == "" {
 		return fmt.Errorf("Blomp: username and password are required")
 	}
-	if strings.TrimSpace(d.AuthURL) == "" {
+	authURL := strings.TrimSpace(d.AuthURL)
+	if authURL == "" {
 		return fmt.Errorf("Blomp: Auth URL is required; enter the Keystone v2 URL supplied by Blomp")
+	}
+	parsedAuthURL, err := url.ParseRequestURI(authURL)
+	if err != nil || parsedAuthURL.Scheme != "https" || parsedAuthURL.Host == "" {
+		return fmt.Errorf("Blomp: Auth URL must be a valid HTTPS Keystone v2 endpoint")
 	}
 	c := &swift.Connection{
 		UserName: d.Username,
 		ApiKey: d.Password,
-		AuthUrl: strings.TrimSpace(d.AuthURL),
+		AuthUrl: authURL,
 		AuthVersion: 2,
 		Tenant: d.Tenant,
 		Region: d.Region,
@@ -124,6 +130,9 @@ type blompRangeReader struct {
 }
 
 func (r *blompRangeReader) RangeRead(ctx context.Context, rg http_range.Range) (io.ReadCloser, error) {
+	if rg.Length == 0 {
+		return io.NopCloser(strings.NewReader("")), nil
+	}
 	headers := swift.Headers{}
 	if rg.Start > 0 || rg.Length >= 0 {
 		end := ""
@@ -187,6 +196,19 @@ func (d *Blomp) moveOrCopy(ctx context.Context, srcObj, dstDir model.Obj, move b
 // transferObject copies a file or an entire Swift pseudo-directory. For a
 // directory, all descendants are copied before any source object is removed.
 func (d *Blomp) transferObject(ctx context.Context, srcContainer, srcObject, dstContainer, dstObject string, isDir, move bool) error {
+	if !isDir && srcContainer == dstContainer && srcObject == dstObject {
+		return nil
+	}
+	if isDir && srcContainer == dstContainer {
+		srcPrefix := strings.TrimSuffix(srcObject, "/") + "/"
+		dstPrefix := strings.TrimSuffix(dstObject, "/") + "/"
+		if srcPrefix == dstPrefix {
+			return nil
+		}
+		if strings.HasPrefix(dstPrefix, srcPrefix) {
+			return fmt.Errorf("cannot copy or move a directory into itself or one of its descendants")
+		}
+	}
 	if !isDir {
 		if move {
 			return d.conn.ObjectMove(ctx, srcContainer, srcObject, dstContainer, dstObject)
