@@ -22,3 +22,23 @@ func TestSplitStoragePath(t *testing.T) {
 		}
 	}
 }
+
+func TestValidName(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"file.txt", true},
+		{"folder name", true},
+		{"", false},
+		{".", false},
+		{"..", false},
+		{"a/b", false},
+		{ "a\\\\b", false },
+	}
+	for _, tt := range tests {
+		if got := validName(tt.name); got != tt.want {
+			t.Errorf("validName(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
