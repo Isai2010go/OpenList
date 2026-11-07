@@ -17,6 +17,10 @@ The authentication URL must use HTTPS. The driver authenticates with Keystone v2
 
 Swift containers are presented as top-level folders. Objects inside a container are shown as files and pseudo-directories. A trailing slash object is used when creating a directory. Directory copy, move, and rename operate recursively over the objects under the directory prefix.
 
+## Development disclosure
+
+The initial implementation was drafted with AI assistance (ChatGPT). It has not been independently reviewed or validated yet; maintainers should review the code and test results before merging.
+
 ## Current limitations / validation status
 
 - Blomp's currently supported Keystone URL, tenant value, and returned object-store endpoint must be confirmed against a real Blomp account.
