@@ -37,6 +37,7 @@ func (d *Blomp) Init(ctx context.Context) error {
 		AuthUrl: strings.TrimSpace(d.AuthURL),
 		AuthVersion: 2,
 		Tenant: d.Tenant,
+		Region: d.Region,
 		ConnectTimeout: 15 * time.Second,
 		Timeout: 2 * time.Minute,
 		UserAgent: "OpenList-Blomp/1.0",
